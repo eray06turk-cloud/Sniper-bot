@@ -7,7 +7,7 @@ TELEGRAM_TOKEN = "8775179244:AAEXxd5pN2CXtqp67jRDeVDj8OQrGpXoExc"
 CHAT_ID = "8680241935"
 
 MIN_VOLUME = 15000000
-PUMP_THRESHOLD = 2  # %2 üstü hareket
+PUMP_THRESHOLD = 2
 
 st.set_page_config(page_title="SNIPER ELITE V15 PRO", layout="wide")
 
@@ -59,7 +59,7 @@ else:
     st.error("🔴 BOT DURDU")
 
 
-# ANA TARAYICI (20 saniyede 1 çalışır)
+# ANA TARAYICI
 if st.session_state.running:
     now = time.time()
 
@@ -70,7 +70,17 @@ if st.session_state.running:
             r = requests.get("https://fapi.binance.com/fapi/v1/ticker/24hr", timeout=10)
             data = r.json()
 
+            # HATA KORUMA
+            if not isinstance(data, list):
+                st.error(f"API Hatası: {data}")
+                time.sleep(5)
+                st.stop()
+
             for coin in data:
+
+                if not isinstance(coin, dict):
+                    continue
+
                 symbol = coin.get('symbol', '')
 
                 if not symbol.endswith("USDT"):
@@ -82,29 +92,31 @@ if st.session_state.running:
                 if vol < MIN_VOLUME:
                     continue
 
-                # LONG SETUP (Pump)
+                # LONG
                 if change > PUMP_THRESHOLD:
                     p = float(coin['lastPrice'])
                     h = float(coin['highPrice'])
 
-                    if p > h * 0.98:  # breakout teyidi
+                    if p > h * 0.98:
                         side = "🟢 LONG"
-
                         entry = p
                         tp = p * 1.01
                         sl = p * 0.99
+                    else:
+                        continue
 
-                # SHORT SETUP (Dump)
+                # SHORT
                 elif change < -PUMP_THRESHOLD:
                     p = float(coin['lastPrice'])
                     l = float(coin['lowPrice'])
 
                     if p < l * 1.02:
                         side = "🔴 SHORT"
-
                         entry = p
                         tp = p * 0.99
                         sl = p * 1.01
+                    else:
+                        continue
                 else:
                     continue
 
