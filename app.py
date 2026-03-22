@@ -2,105 +2,93 @@ import streamlit as st
 import requests
 import time
 
+# --- AYARLAR (GOMULU) ---
 TELEGRAM_TOKEN = "8775179244:AAEXxd5pN2CXtqp67jRDeVDj8OQrGpXoExc"
 CHAT_ID = "8680241935"
+PRICE_THRESHOLD = 0.5   # %0.5 hareket eşiği
+MIN_VOLUME = 5000000    # 5M+ USDT Hacim filtresi
 
-MIN_VOLUME = 10000000
-PUMP_THRESHOLD = 2
-
-st.title("🎯 SNIPER ELITE V15 (STABLE)")
-
-if "running" not in st.session_state:
-    st.session_state.running = False
-
-if "sent" not in st.session_state:
-    st.session_state.sent = {}
-
-if "last_run" not in st.session_state:
-    st.session_state.last_run = 0
-
+st.set_page_config(page_title="Sniper Elite v14.1", layout="centered")
+st.title("🎯 SNIPER ELITE V14.1")
+st.info("Sistem 7/24 Aktif - Sinyaller Doğrudan Telegram'a Gönderilir.")
 
 def send_msg(text):
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        params = {"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"}
-        requests.get(url, params=params)
-    except:
-        pass
+        params = {
+            "chat_id": CHAT_ID, 
+            "text": text, 
+            "parse_mode": "HTML", 
+            "disable_web_page_preview": "true"
+        }
+        requests.get(url, params=params, timeout=10)
+    except Exception as e:
+        st.error(f"Telegram Hatası: {e}")
 
+if 'sent' not in st.session_state:
+    st.session_state.sent = {}
 
+# Arayüz Butonları
 col1, col2 = st.columns(2)
-
 with col1:
-    if st.button("🚀 BAŞLAT"):
-        st.session_state.running = True
-
+    start_btn = st.button('🚀 AVLANMAYA BAŞLA', use_container_width=True)
 with col2:
-    if st.button("🛑 DURDUR"):
-        st.session_state.running = False
+    stop_btn = st.button('🛑 DURDUR', use_container_width=True)
 
-
-if st.session_state.running:
-    st.success("🟢 BOT AKTİF")
-else:
-    st.error("🔴 BOT DURDU")
-
-
-if st.session_state.running:
-    now = time.time()
-
-    if now - st.session_state.last_run > 20:
-        st.session_state.last_run = now
-
+if start_btn:
+    st.success("Tarama Başlatıldı! Piyasa taranıyor...")
+    placeholder = st.empty()
+    
+    while True:
         try:
-            # ✅ SPOT API (ENGEL YOK)
-            url = "https://api.binance.com/api/v3/ticker/24hr"
-            data = requests.get(url).json()
-
+            # Binance Vadeli İşlemler Verisi
+            r = requests.get("https://fapi.binance.com/fapi/v1/ticker/24hr", timeout=15)
+            data = r.json()
+            
             if not isinstance(data, list):
-                st.error(f"API Hatası: {data}")
-                st.stop()
+                st.warning("Veri bekleniyor... (Binance kısıtlaması)")
+                time.sleep(10)
+                continue
 
             for coin in data:
-                symbol = coin['symbol']
-
-                if not symbol.endswith("USDT"):
-                    continue
-
-                vol = float(coin['quoteVolume'])
-                change = float(coin['priceChangePercent'])
-
-                if vol < MIN_VOLUME:
-                    continue
-
-                if abs(change) < PUMP_THRESHOLD:
-                    continue
-
-                p = float(coin['lastPrice'])
-
-                side = "🟢 LONG" if change > 0 else "🔴 SHORT"
-
-                entry = p
-                tp = p * 1.01 if change > 0 else p * 0.99
-                sl = p * 0.99 if change > 0 else p * 1.01
-
-                now_time = time.time()
-
-                if symbol not in st.session_state.sent or (now_time - st.session_state.sent[symbol] > 900):
-
-                    msg = (
-                        f"📊 SNIPER SIGNAL\n"
-                        f"💎 {symbol}\n"
-                        f"%{change:.2f}\n\n"
-                        f"{side}\n"
-                        f"Entry: {entry}\n"
-                        f"TP: {tp}\n"
-                        f"SL: {sl}"
-                    )
-
-                    send_msg(msg)
-                    st.session_state.sent[symbol] = now_time
-                    st.write(f"✅ {symbol}")
-
+                symbol = coin.get('symbol', '')
+                if symbol.endswith('USDT'):
+                    vol = float(coin.get('quoteVolume', 0))
+                    
+                    # 5M+ Hacim Filtresi
+                    if vol > MIN_VOLUME:
+                        change = float(coin.get('priceChangePercent', 0))
+                        
+                        # %0.5 Değişim Eşiği
+                        if abs(change) >= PRICE_THRESHOLD:
+                            now = time.time()
+                            # 15 dakika spam engelleme
+                            if symbol not in st.session_state.sent or (now - st.session_state.sent[symbol] > 900):
+                                price = float(coin.get('lastPrice', 0))
+                                high = float(coin.get('highPrice', 0))
+                                low = float(coin.get('lowPrice', 0))
+                                
+                                # Profesyonel Teknik Analiz (R1 / S1)
+                                piv = (high + low + price) / 3
+                                r1 = (2 * piv) - low
+                                s1 = (2 * piv) - high
+                                
+                                side = "🟢 LONG" if change > 0 else "🔴 SHORT"
+                                tv_link = f"https://www.tradingview.com/chart/?symbol=BINANCE:{symbol}PERP"
+                                
+                                msg = (f"<b>📊 SNIPER SIGNAL: {side}</b>\n"
+                                       f"━━━━━━━━━━━━━━━\n"
+                                       f"💎 <b>#{symbol}</b> | %{change:.2f}\n"
+                                       f"💰 Fiyat: {price}\n"
+                                       f"🚧 R1: {r1:.5g}\n"
+                                       f"🛡️ S1: {s1:.5g}\n\n"
+                                       f"📊 <a href='{tv_link}'>GRAFİĞİ AÇ</a>")
+                                
+                                send_msg(msg)
+                                st.session_state.sent[symbol] = now
+                                placeholder.write(f"✅ Sinyal Gönderildi: {symbol} (%{change})")
+            
+            time.sleep(20) # 20 saniyede bir tarama
         except Exception as e:
-            st.error(f"Hata: {e}")
+            st.error(f"Bağlantı Hatası: {e}")
+            time.sleep(10)
