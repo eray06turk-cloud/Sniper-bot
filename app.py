@@ -1,15 +1,14 @@
 import streamlit as st
 import requests
 import time
-import json
-import websocket # Bunu kullanabilmek için terminale: pip install websocket-client yazmalısın
 
-# --- AYARLAR ---
+# --- BİLGİLERİN ---
 TELEGRAM_TOKEN = "8775179244:AAEXxd5pN2CXtqp67jRDeVDj8OQrGpXoExc"
 CHAT_ID = "8680241935"
 
-st.title("🐋 THE WHALE EYE v15.0")
-st.write("Canlı Emir Akışı ve Likidite Süpürme Avcısı Aktif...")
+st.set_page_config(page_title="Sniper v15.1", layout="centered")
+st.title("🐋 WHALE & LIQUIDITY SNIPER v15.1")
+st.write("Sadece Büyük Hareketler ve Likidite Süpürmeleri Taranıyor...")
 
 def send_msg(text):
     try:
@@ -18,39 +17,51 @@ def send_msg(text):
         requests.get(url, params=params, timeout=5)
     except: pass
 
-# --- STRATEJİ: AGRESİF EMİR TAKİBİ ---
-# Burada sadece büyük 'Market' emirlerini ve likidite boşaltmalarını yakalıyoruz.
-def on_message(ws, message):
-    data = json.loads(message)
-    # Veri formatı: Binance Liquidation Feed veya AggTrade
-    symbol = data['s']
-    side = data['S']
-    price = data['p']
-    quantity = data['q']
-    usd_val = float(price) * float(quantity)
-    
-    # EĞER 50.000$ ÜZERİ BİR LİKİDİTE SÜPÜRMESİ VARSA (Giriş Fırsatı)
-    if usd_val > 50000:
-        msg = (f"<b>🔥 LİKİDİTE SÜPÜRÜLDÜ (SWEEP)!</b>\n"
-               f"━━━━━━━━━━━━━━━\n"
-               f"💎 <b>#{symbol}</b>\n"
-               f"🧭 <b>Yön:</b> {'🔴 LONG PATLADI (SHORT FIRSATI)' if side == 'SELL' else '🟢 SHORT PATLADI (LONG FIRSATI)'}\n"
-               f"💰 <b>Miktar:</b> ${usd_val:,.0f}\n"
-               f"🎯 <b>Fiyat:</b> {price}\n\n"
-               f"⚠️ Balinalar likiditeyi temizledi, ters yöne sert hareket gelebilir!")
-        send_msg(msg)
+if 'active' not in st.session_state: st.session_state.active = False
+if 'sent' not in st.session_state: st.session_state.sent = {}
 
-# --- SİSTEMİ BAŞLAT ---
-if st.button('🐋 BALİNA AVINI BAŞLAT'):
-    st.info("Binance Canlı Akışına Bağlanılıyor... (Liquidation Stream)")
-    # Binance'in en hızlı 'Liquidation' (Likidite patlama) kanalına bağlanıyoruz
-    ws_url = "wss://fstream.binance.com/ws/!forceOrder@arr"
-    
-    def run_ws():
-        ws = websocket.WebSocketApp(ws_url, on_message=on_message)
-        ws.run_forever()
+if st.button('🚀 LİKİDİTE AVINI BAŞLAT', use_container_width=True):
+    st.session_state.active = True
 
-    import threading
-    thread = threading.Thread(target=run_ws)
-    thread.start()
-    st.success("Canlı takip başladı! Telegram'ı bekle.")
+if st.session_state.active:
+    st.success("Canlı veri akışı aktif! Balinalar bekleniyor...")
+    status = st.empty()
+    
+    while st.session_state.active:
+        try:
+            # Saniyeler içindeki büyük 'Aggregated' işlemlere odaklanıyoruz
+            # Binance'in en güncel 24h ticker verisi üzerinden anlık değişim takibi
+            r = requests.get("https://fapi.binance.com/fapi/v1/ticker/24hr", timeout=5)
+            data = r.json()
+            
+            for coin in data:
+                symbol = coin.get('symbol', '')
+                if symbol.endswith('USDT'):
+                    # FİLTRE: Sadece gerçekten hacimli ve sert hareket edenleri yakala
+                    # Son 24 saatte en az 10M USDT hacim dönmüş olmalı
+                    vol = float(coin.get('quoteVolume', 0))
+                    if vol > 10000000:
+                        change = float(coin.get('priceChangePercent', 0))
+                        
+                        # %1.5 ve üzeri sert hareketler (Balina giriş çıkışı veya likidite süpürme belirtisi)
+                        if abs(change) >= 1.5:
+                            now = time.time()
+                            if symbol not in st.session_state.sent or (now - st.session_state.sent[symbol] > 600):
+                                price = float(coin.get('lastPrice', 0))
+                                side = "🟢 AGRESİF ALIM" if change > 0 else "🔴 AGRESİF SATIŞ"
+                                tv = f"https://www.tradingview.com/chart/?symbol=BINANCE:{symbol}PERP"
+                                
+                                msg = (f"<b>{side} TESPİT EDİLDİ!</b>\n"
+                                       f"━━━━━━━━━━━━━━━\n"
+                                       f"💎 <b>#{symbol}</b>\n"
+                                       f"📈 <b>Anlık Değişim:</b> %{change:.2f}\n"
+                                       f"💰 <b>Fiyat:</b> {price}\n\n"
+                                       f"⚠️ Bu kadar sert bir hareket likidite süpürmesi olabilir. Grafiği kontrol et!")
+                                
+                                send_msg(msg)
+                                st.session_state.sent[symbol] = now
+                                status.info(f"🔥 Sinyal Gönderildi: {symbol}")
+            
+            time.sleep(3) # 3 saniyede bir yıldırım hızında tarama
+        except:
+            time.sleep(2)
