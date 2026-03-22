@@ -1,14 +1,15 @@
 import streamlit as st
 import requests
 import time
+import json
+import websocket # Bunu kullanabilmek için terminale: pip install websocket-client yazmalısın
 
 # --- AYARLAR ---
 TELEGRAM_TOKEN = "8775179244:AAEXxd5pN2CXtqp67jRDeVDj8OQrGpXoExc"
 CHAT_ID = "8680241935"
 
-st.set_page_config(page_title="Global Sniper v14.6", layout="centered")
-st.title("🌐 GLOBAL DATA SNIPER V14.6")
-st.write("Veri Kaynağı: Global Price Aggregator (Engelsiz)")
+st.title("🐋 THE WHALE EYE v15.0")
+st.write("Canlı Emir Akışı ve Likidite Süpürme Avcısı Aktif...")
 
 def send_msg(text):
     try:
@@ -17,53 +18,39 @@ def send_msg(text):
         requests.get(url, params=params, timeout=5)
     except: pass
 
-if 'active' not in st.session_state: st.session_state.active = False
-if 'sent' not in st.session_state: st.session_state.sent = {}
-
-if st.button('🚀 ALTERNATİF TARAMAYI BAŞLAT', use_container_width=True):
-    st.session_state.active = True
-
-if st.session_state.active:
-    st.success("Alternatif veri kanalı aktif! Sinyaller bekleniyor...")
-    status = st.empty()
+# --- STRATEJİ: AGRESİF EMİR TAKİBİ ---
+# Burada sadece büyük 'Market' emirlerini ve likidite boşaltmalarını yakalıyoruz.
+def on_message(ws, message):
+    data = json.loads(message)
+    # Veri formatı: Binance Liquidation Feed veya AggTrade
+    symbol = data['s']
+    side = data['S']
+    price = data['p']
+    quantity = data['q']
+    usd_val = float(price) * float(quantity)
     
-    while st.session_state.active:
-        try:
-            # Binance yerine CryptoCompare API (Engellenmesi çok zor, stabil veri)
-            # Ücretsiz ve anahtarsız hızlı veri çekme
-            url = "https://min-api.cryptocompare.com/data/pricemultifull?fsyms=BTC,ETH,SOL,BNB,XRP,ADA,DOGE,AVAX,TRX,LINK,DOT,MATIC,LTC,SHIB,NEAR,PEOPLE,1000SHIB,BONK,MEME&tsyms=USDT"
-            r = requests.get(url, timeout=10)
-            res = r.json()
-            
-            if "RAW" in res:
-                raw_data = res["RAW"]
-                for coin in raw_data:
-                    symbol = f"{coin}USDT"
-                    details = raw_data[coin]["USDT"]
-                    
-                    change = float(details["CHANGEPCT24HOUR"]) # 24 saatlik yüzde
-                    price = float(details["PRICE"])
-                    vol = float(details["VOLUME24HOURTO"]) # USDT Hacmi
-                    
-                    # Filtre: %0.3 hareket ve hacim
-                    if abs(change) >= 0.3:
-                        now = time.time()
-                        if symbol not in st.session_state.sent or (now - st.session_state.sent[symbol] > 600):
-                            side = "🟢 LONG" if change > 0 else "🔴 SHORT"
-                            tv = f"https://www.tradingview.com/chart/?symbol=BINANCE:{symbol}PERP"
-                            
-                            msg = (f"<b>{side} (Global Data)</b>\n"
-                                   f"━━━━━━━━━━━━━━━\n"
-                                   f"💎 <b>#{symbol}</b>\n"
-                                   f"📈 Değişim: %{change:.2f}\n"
-                                   f"💰 Fiyat: {price}\n"
-                                   f"📊 <a href='{tv}'>GRAFİĞİ AÇ</a>")
-                            
-                            send_msg(msg)
-                            st.session_state.sent[symbol] = now
-                            status.info(f"Sinyal Gönderildi: {symbol}")
-            
-            time.sleep(15) # Global veri 15 saniyede bir güncellenir
-        except Exception as e:
-            status.error(f"Veri çekme hatası: {e}")
-            time.sleep(5)
+    # EĞER 50.000$ ÜZERİ BİR LİKİDİTE SÜPÜRMESİ VARSA (Giriş Fırsatı)
+    if usd_val > 50000:
+        msg = (f"<b>🔥 LİKİDİTE SÜPÜRÜLDÜ (SWEEP)!</b>\n"
+               f"━━━━━━━━━━━━━━━\n"
+               f"💎 <b>#{symbol}</b>\n"
+               f"🧭 <b>Yön:</b> {'🔴 LONG PATLADI (SHORT FIRSATI)' if side == 'SELL' else '🟢 SHORT PATLADI (LONG FIRSATI)'}\n"
+               f"💰 <b>Miktar:</b> ${usd_val:,.0f}\n"
+               f"🎯 <b>Fiyat:</b> {price}\n\n"
+               f"⚠️ Balinalar likiditeyi temizledi, ters yöne sert hareket gelebilir!")
+        send_msg(msg)
+
+# --- SİSTEMİ BAŞLAT ---
+if st.button('🐋 BALİNA AVINI BAŞLAT'):
+    st.info("Binance Canlı Akışına Bağlanılıyor... (Liquidation Stream)")
+    # Binance'in en hızlı 'Liquidation' (Likidite patlama) kanalına bağlanıyoruz
+    ws_url = "wss://fstream.binance.com/ws/!forceOrder@arr"
+    
+    def run_ws():
+        ws = websocket.WebSocketApp(ws_url, on_message=on_message)
+        ws.run_forever()
+
+    import threading
+    thread = threading.Thread(target=run_ws)
+    thread.start()
+    st.success("Canlı takip başladı! Telegram'ı bekle.")
