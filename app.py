@@ -2,13 +2,13 @@ import streamlit as st
 import requests
 import time
 
-# --- BİLGİLERİN ---
+# --- AYARLAR ---
 TELEGRAM_TOKEN = "8775179244:AAEXxd5pN2CXtqp67jRDeVDj8OQrGpXoExc"
 CHAT_ID = "8680241935"
 
-st.set_page_config(page_title="Sniper v15.1", layout="centered")
-st.title("🐋 WHALE & LIQUIDITY SNIPER v15.1")
-st.write("Sadece Büyük Hareketler ve Likidite Süpürmeleri Taranıyor...")
+st.set_page_config(page_title="Siren Hunter v16.0", layout="centered")
+st.title("🚨 SIREN HUNTER v16.0")
+st.subheader("Likidite Süpürme ve Balina Emirleri Takibi")
 
 def send_msg(text):
     try:
@@ -20,48 +20,52 @@ def send_msg(text):
 if 'active' not in st.session_state: st.session_state.active = False
 if 'sent' not in st.session_state: st.session_state.sent = {}
 
-if st.button('🚀 LİKİDİTE AVINI BAŞLAT', use_container_width=True):
+if st.button('🔥 LİKİDİTE AVINI BAŞLAT', use_container_width=True):
     st.session_state.active = True
 
 if st.session_state.active:
-    st.success("Canlı veri akışı aktif! Balinalar bekleniyor...")
-    status = st.empty()
+    st.success("Coinglass Tarzı Canlı Likidite Taraması Başlatıldı...")
+    placeholder = st.empty()
     
     while st.session_state.active:
         try:
-            # Saniyeler içindeki büyük 'Aggregated' işlemlere odaklanıyoruz
-            # Binance'in en güncel 24h ticker verisi üzerinden anlık değişim takibi
-            r = requests.get("https://fapi.binance.com/fapi/v1/ticker/24hr", timeout=5)
+            # 1. ADIM: Binance Likidasyon Akışını ve Büyük Emirleri Yakala
+            # Bu API ucu son likidasyonları (patlayan pozisyonları) getirir
+            r = requests.get("https://fapi.binance.com/fapi/v1/allForceOrders", timeout=10)
             data = r.json()
             
-            for coin in data:
-                symbol = coin.get('symbol', '')
-                if symbol.endswith('USDT'):
-                    # FİLTRE: Sadece gerçekten hacimli ve sert hareket edenleri yakala
-                    # Son 24 saatte en az 10M USDT hacim dönmüş olmalı
-                    vol = float(coin.get('quoteVolume', 0))
-                    if vol > 10000000:
-                        change = float(coin.get('priceChangePercent', 0))
-                        
-                        # %1.5 ve üzeri sert hareketler (Balina giriş çıkışı veya likidite süpürme belirtisi)
-                        if abs(change) >= 1.5:
-                            now = time.time()
-                            if symbol not in st.session_state.sent or (now - st.session_state.sent[symbol] > 600):
-                                price = float(coin.get('lastPrice', 0))
-                                side = "🟢 AGRESİF ALIM" if change > 0 else "🔴 AGRESİF SATIŞ"
-                                tv = f"https://www.tradingview.com/chart/?symbol=BINANCE:{symbol}PERP"
-                                
-                                msg = (f"<b>{side} TESPİT EDİLDİ!</b>\n"
-                                       f"━━━━━━━━━━━━━━━\n"
-                                       f"💎 <b>#{symbol}</b>\n"
-                                       f"📈 <b>Anlık Değişim:</b> %{change:.2f}\n"
-                                       f"💰 <b>Fiyat:</b> {price}\n\n"
-                                       f"⚠️ Bu kadar sert bir hareket likidite süpürmesi olabilir. Grafiği kontrol et!")
-                                
-                                send_msg(msg)
-                                st.session_state.sent[symbol] = now
-                                status.info(f"🔥 Sinyal Gönderildi: {symbol}")
-            
-            time.sleep(3) # 3 saniyede bir yıldırım hızında tarama
-        except:
-            time.sleep(2)
+            if data and isinstance(data, list):
+                # En son gerçekleşen büyük likidasyonlara bak
+                for order in data[-10:]:  # Son 10 büyük patlama
+                    symbol = order.get('symbol')
+                    side = order.get('side')
+                    price = float(order.get('price'))
+                    qty = float(order.get('origQty'))
+                    usd_val = price * qty
+                    
+                    # FİLTRE: En az 10.000$ ve üzeri tekil patlamalar (Balina iştahı)
+                    if usd_val > 10000:
+                        now = time.time()
+                        # Aynı fiyat bölgesini 10 dakika boyunca tekrar bildirme
+                        if f"{symbol}_{price}" not in st.session_state.sent or (now - st.session_state.sent[f"{symbol}_{price}"] > 600):
+                            
+                            # Yön Analizi: Longlar patlıyorsa fiyat aşağı süpürülmüştür (Destek oluşabilir)
+                            # Shortlar patlıyorsa fiyat yukarı süpürülmüştür (Direnç oluşabilir)
+                            trend = "🔴 LONG LİKİDİTESİ SÜPÜRÜLDÜ" if side == 'SELL' else "🟢 SHORT LİKİDİTESİ SÜPÜRÜLDÜ"
+                            action = "🚀 TEPKİ ALIMI GELEBİLİR" if side == 'SELL' else "📉 DÖNÜŞ GELEBİLİR"
+                            
+                            msg = (f"<b>{trend}</b>\n"
+                                   f"━━━━━━━━━━━━━━━\n"
+                                   f"💎 <b>#{symbol}</b>\n"
+                                   f"💰 <b>Temizlenen Tutar:</b> ${usd_val:,.0f}\n"
+                                   f"🎯 <b>Süpürme Fiyatı:</b> {price}\n"
+                                   f"💡 <b>Beklenti:</b> {action}\n\n"
+                                   f"📊 <a href='https://www.tradingview.com/chart/?symbol=BINANCE:{symbol}PERP'>GRAFİKTE GÖR</a>")
+                            
+                            send_msg(msg)
+                            st.session_state.sent[f"{symbol}_{price}"] = now
+                            placeholder.info(f"🚨 Likidite Yakalandı: {symbol} - {usd_val:,.0f}$")
+
+            time.sleep(10) # 10 saniyede bir akışı kontrol et
+        except Exception as e:
+            time.sleep(5)
